@@ -46,7 +46,7 @@ const getRequestListener = (fetchCallback: FetchCallback) => {
       headers: headerRecord,
     } as RequestInit
 
-    if (!(method === ('GET' || 'HEAD'))) {
+    if (!(method === 'GET' || method === 'HEAD')) {
       const buffers = []
       for await (const chunk of incoming) {
         buffers.push(chunk)
@@ -55,19 +55,30 @@ const getRequestListener = (fetchCallback: FetchCallback) => {
       init['body'] = buffer
     }
 
-    const res = (await fetchCallback(new Request(url.toString(), init))) as Response
+    let res: Response
+
+    try {
+      res = (await fetchCallback(new Request(url.toString(), init))) as Response
+    } catch {
+      res = new Response(null, { status: 500 })
+    }
 
     const contentType = res.headers.get('content-type') || ''
+    const contentEncoding = res.headers.get('content-encoding')
 
     for (const [k, v] of res.headers) {
-      outgoing.setHeader(k, v)
+      if (k === 'set-cookie') {
+        outgoing.setHeader(k, res.headers.getAll(k))
+      } else {
+        outgoing.setHeader(k, v)
+      }
     }
     outgoing.statusCode = res.status
 
     if (res.body) {
-      if (contentType.startsWith('text')) {
+      if (!contentEncoding && contentType.startsWith('text')) {
         outgoing.end(await res.text())
-      } else if (contentType.startsWith('application/json')) {
+      } else if (!contentEncoding && contentType.startsWith('application/json')) {
         outgoing.end(await res.text())
       } else {
         await writeReadableStreamToWritable(res.body, outgoing)
